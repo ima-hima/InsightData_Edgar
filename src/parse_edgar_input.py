@@ -2,6 +2,7 @@
 
 from csv      import reader, writer, QUOTE_MINIMAL
 from datetime import datetime, timedelta
+from operator import itemgetter
 
 # def main():
 log = {} # This is a dict where I'll store info as
@@ -51,12 +52,14 @@ with open(dir_name + 'output/my_sessionization.txt', 'w') as output_stream:
     # print(timestamp)
             ip = row[0]
             if ip in log:
-                if timestamp - log[ip][1] > timedelta(seconds=2):
+                if timestamp - log[ip][1] > timedelta(seconds=interval):
                     print("deleted", ip, log[ip][1], timestamp, log[ip][1])
-                    logwriter.writerow([ip, log[ip][0], timestamp, timestamp - log[ip][0], len(log[ip][2])])
+                    logwriter.writerow([ip, log[ip][0], timestamp, (timestamp - log[ip][0]).seconds + 1, len(log[ip][2])])
                     del log[ip]
+                    to_insert = {uid}
+                    log[ip] = [timestamp, timestamp, to_insert]
                 else:
-                    log[ip][0] = timestamp
+
                     log[ip][1] = timestamp
                     print("inserted", ip, timestamp, uid)
                     log[ip][2].add(uid)  # I should put this in a try/except,
@@ -65,8 +68,8 @@ with open(dir_name + 'output/my_sessionization.txt', 'w') as output_stream:
             else: # need to insert new line in log
                 to_insert = {uid}
                 log[ip] = [timestamp, timestamp, to_insert]
-        for ip in log:
-            logwriter.writerow([ip, log[ip][0], timestamp, timestamp - log[ip][0], len(log[ip][2])])
+        for ip in sorted(log, key=itemgetter(1)):
+            logwriter.writerow([ip, log[ip][0], log[ip][0], (log[ip][1] - log[ip][0]).seconds + 1, len(log[ip][2])])
 
 
 
