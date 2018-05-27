@@ -15,7 +15,7 @@ log = {} # This is a dict where I'll store info as
 
 dir_name = '../insight_testsuite/tests/test_1/'
 with open(dir_name + 'input/inactivity_period.txt') as interval_file:
-    interval = int(interval_file.readline())
+    interval = timedelta( seconds=int(interval_file.readline()) )
 
 # read a csv stream, capture these fields:
 # 0: IP
@@ -32,13 +32,13 @@ with open(dir_name + 'output/my_sessionization.txt', 'w') as output_stream:
     logwriter = writer(output_stream, delimiter=',', quotechar='"', quoting=QUOTE_MINIMAL)
     with open(dir_name + 'input/log.csv', newline='') as input_stream:
         next(input_stream)
-        logline = reader(input_stream, delimiter=',', quotechar='"') # Could have used DictReader
-                                                                     # difference is access via string
-                                                                     # or index. String is quicker
-                                                                     # but aids legibility
+        logline = reader(input_stream, delimiter=',', quotechar='"')
+            # Could have used DictReader.
+            # Difference is access via ref string or index. Reference aids legibility
+            # but this input file has different headers than EDGAR file, and also
+            # has "extension" spelled incorrectly. Sigh.
         print(logline)
         for row in logline:
-            # print(row[4], row[5], row[6])
             # Declaring a variable here for legibility.
             uid = f'{row[4]}{row[5]}{row[6]}' # from my reading f'' should be slightly
                                               # faster than using '+', although
@@ -52,24 +52,21 @@ with open(dir_name + 'output/my_sessionization.txt', 'w') as output_stream:
     # print(timestamp)
             ip = row[0]
             if ip in log:
-                if timestamp - log[ip][1] > timedelta(seconds=interval):
+                if timestamp - log[ip][1] > interval: # in log but no longer active
                     print("deleted", ip, log[ip][1], timestamp, log[ip][1])
-                    logwriter.writerow([ip, log[ip][0], timestamp, (timestamp - log[ip][0]).seconds + 1, len(log[ip][2])])
+                    logwriter.writerow([ip, log[ip][0], timestamp, (timestamp - log[ip][0]).seconds + 1, log[ip][2]])
                     del log[ip]
-                    to_insert = {uid}
-                    log[ip] = [timestamp, timestamp, to_insert]
-                else:
-
+                    log[ip] = [timestamp, timestamp, 1]
+                else: # in the log and still active
                     log[ip][1] = timestamp
                     print("inserted", ip, timestamp, uid)
-                    log[ip][2].add(uid)  # I should put this in a try/except,
-                                         # but for now I'll assume it's safe to assume
-                                         # that the set already exists.
+                    log[ip][2] += 1  # I should put this in a try/except,
+                                     # but for now I'll assume it's safe to assume
+                                     # that the set already exists.
             else: # need to insert new line in log
-                to_insert = {uid}
-                log[ip] = [timestamp, timestamp, to_insert]
+                log[ip] = [timestamp, timestamp, 1]
         for ip in sorted(log, key=itemgetter(1)):
-            logwriter.writerow([ip, log[ip][0], log[ip][0], (log[ip][1] - log[ip][0]).seconds + 1, len(log[ip][2])])
+            logwriter.writerow([ip, log[ip][0], timestamp, (log[ip][1] - log[ip][0]).seconds + 1, log[ip][2]])
 
 
 
@@ -79,3 +76,23 @@ with open(dir_name + 'output/my_sessionization.txt', 'w') as output_stream:
 # for line in (logfile):
 #     print(line)
 
+
+# New process:
+# 1. Log interval == interval - 1, because inclusive DONE
+# 2. Open input doc                                  DONE
+# 3. Read csv using Python csv reader                DONE
+# 4. For each line, note current query time. While time is constant either
+#    a) add new IP with original query time == latest query == current timestamp,
+#       no. docs = 1
+#    b) updating existing IPs with latest query == current timestamp, no. docs += 1
+# 5. If time changes print and then delete any IPs that were logged `interval` ago.
+
+
+# New class:
+# Be able to look up sessions by both IP and last query time.
+# Store first query time, last query time, number of documents
+class LogQueue:
+    # last query time -> ip
+    # ip ->
+    def __init__():
+        a = 5
