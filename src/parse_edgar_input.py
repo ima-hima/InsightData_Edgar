@@ -17,7 +17,7 @@ prev_time = datetime.min
 
 dir_name = '../insight_testsuite/tests/test_1/'
 with open(dir_name + 'input/inactivity_period.txt') as interval_file:
-    interval = timedelta( seconds=int(interval_file.readline()) - 1 )
+    interval = timedelta( seconds=int(interval_file.readline()) )
 
 # read a csv stream, capture these fields:
 # 0: IP
@@ -31,23 +31,27 @@ with open(dir_name + 'input/inactivity_period.txt') as interval_file:
 
 # csv iterates a file reading one line at a time, so memory footprint is small
 with open(dir_name + 'output/my_sessionization.txt', 'w') as output_stream:
+    # logwriter should also only keep strings in memory till cache is cleared, so footprint is small.
     logwriter = writer(output_stream, delimiter=',', quotechar='"', quoting=QUOTE_MINIMAL)
     with open(dir_name + 'input/log.csv', newline='') as input_stream:
-        next(input_stream)
+        next(input_stream) # throw away first line of input
         logline = reader(input_stream, delimiter=',', quotechar='"')
             # Could have used DictReader.
             # Difference is access via ref string or index. Using a reference aids legibility,
             # but this input file has different headers than EDGAR file and also
             # has "extension" spelled incorrectly. Sigh.
+        # I need to get first line in log so that I can prime the following loop. Specifically, prev_time
+        # must be first time in file.
         row = next(logline)
         prev_time = datetime.strptime(f'{row[1]} {row[2]}', "%Y-%m-%d %H:%M:%S")
         ip_lookup[prev_time] = row[0]
         log_table[row[0]] = [prev_time, prev_time, 1]
         print(prev_time)
+
         for row in logline:
             current_time = datetime.strptime(f'{row[1]} {row[2]}', "%Y-%m-%d %H:%M:%S")
             if current_time != prev_time:
-                which_time = current_time - interval
+                which_time = current_time - interval #
                 delta      = timedelta(seconds=1)
                 print('current', current_time, 'which', which_time, interval)
                 while which_time < current_time - interval:
