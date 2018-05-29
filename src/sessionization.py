@@ -30,7 +30,15 @@
 # TODOs:
 # 1. Could be more modular
 # 2. The data structure is a little complicated. Making it an object would be nice.
-# 3. Not currently using Pythonic fail-first coding style
+# 3. Not currently using Pythonic EAFP coding style vs. LBYL.
+# 4. Dictionary comprehension and row printing could be a little prettier.
+
+# test cases in my-tests:
+
+# 1. time has expired but ip doesn't appear again
+# 2. change in time > 1
+# 3. queries are still active at end of log
+# 4. other inactivity periods
 
 
 from csv      import reader, writer, QUOTE_MINIMAL
@@ -41,10 +49,10 @@ from sys      import argv
 
 def print_row(ip, log_table, logwriter):
     logwriter.writerow( [ ip
-                        , log_table[ip][0]
-                        , log_table[ip][1]
-                        , (log_table[ip][1] - log_table[ip][0]).seconds + 1
-                        , log_table[ip][2]
+                        , log_table[0]
+                        , log_table[1]
+                        , (log_table[1] - log_table[0]).seconds + 1
+                        , log_table[2]
                         ] )
 
 def get_time(row):
@@ -118,9 +126,10 @@ def main():
                     delta      = timedelta(seconds=1)
                     while which_time < current_time - interval:
                         if which_time in ip_lookup:
-                            for ip in sorted( {ip:log_table[ip] for ip in ip_lookup[which_time]} ,
-                                              key=itemgetter(1) ): # so sorts by datetime of first query
-                                print_row(ip, log_table, logwriter)
+                            stuff = {ip:log_table[ip] for ip in ip_lookup[which_time]}
+                            for ip, value in sorted(stuff.items(),
+                                          key=itemgetter(1)):
+                                print_row(ip, value, logwriter)
                                 del(log_table[ip])
                             del(ip_lookup[which_time]) # which_time is expired; remove entire set from ip_lookup.
                         which_time += delta
@@ -142,8 +151,8 @@ def main():
                     log_table[ip] = [current_time, current_time, 1]
 
             ### End of log file. ###
-            for ip in sorted(log_table, key=itemgetter(1)):
-                print_row(ip, log_table, logwriter)
+            for ip, value in sorted(log_table.items(), key=itemgetter(1)):
+                print_row(ip, value, logwriter)
 
 
 if __name__ == "__main__": main()
