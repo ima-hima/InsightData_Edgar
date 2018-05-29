@@ -4,16 +4,36 @@ from csv      import reader, writer, QUOTE_MINIMAL
 from datetime import datetime, timedelta
 from operator import itemgetter
 
+
+def print_row(ip, log_table, logwriter):
+    logwriter.writerow( [ ip
+                        , log_table[ip][0]
+                        , log_table[ip][1]
+                        , (log_table[ip][1] - log_table[ip][0]).seconds + 1
+                        , log_table[ip][2]
+                        ] )
+
+def get_time(row):
+    # This is fragile and will fail poorly: It relies completely on EDGAR being
+    # properly formatted.
+    # Also, I can ignore timezones, as none are given.
+    return datetime.strptime(f'{row[1]} {row[2]}', "%Y-%m-%d %H:%M:%S")
+
 # def main():
 log_table = {} # This is a dict where I'll store info as
-         # {ip: [original_query_time, set_of_documents]}
-         # Lookups, insertions and deletions are all O(1), and I can remove a
-         # key:value pair without worrying about dealloc'ing the referenced tuple
-         # thanks to Python's garbage collection (thank you Python!).
-         # Because all Python values are boxed, updating the last query time
-         # doesn't force the entire tuple to be copied, so is also O(1).
-ip_lookup = {}
-prev_time = datetime.min
+               # {ip: [original_query_time, set_of_documents]}
+               # Lookups, insertions and deletions are all O(1), and I can remove a
+               # key:value pair without worrying about dealloc'ing the referenced tuple
+               # thanks to Python's garbage collection (thank you Python!).
+               # Because all Python values are boxed, updating the last query time
+               # doesn't force the entire tuple to be copied, so is also O(1).
+
+ip_lookup = {} # This is a dict of {datetime of last query: set of ip's}.
+               # Lookups insertions and deletions are all O(1).
+               # I'll use this to decide which queries have expired so that they
+               # can be removed more easily and atomically vs. having to do some
+               # of O(n) lookup.
+               # Tradeoff in memory efficiency is a constant factor (approx. 2).
 
 dir_name = '../insight_testsuite/tests/test_1/'
 with open(dir_name + 'input/inactivity_period.txt') as interval_file:
@@ -27,7 +47,8 @@ with open(dir_name + 'input/inactivity_period.txt') as interval_file:
 # 5: accession
 # 6: extension
 #
-# 4, 5 & 6 will be concatenated to create a uid. *** Do I actually need this? Queries to same doc still count as new queries.
+# 4, 5 & 6 will be concatenated to create a uid.
+# *** I don't actually use the uid. Queries to same doc still count as new queries. ***
 
 # csv iterates a file reading one line at a time, so memory footprint is small
 with open(dir_name + 'output/my_sessionization.txt', 'w') as output_stream:
@@ -40,103 +61,46 @@ with open(dir_name + 'output/my_sessionization.txt', 'w') as output_stream:
             # Difference is access via ref string or index. Using a reference aids legibility,
             # but this input file has different headers than EDGAR file and also
             # has "extension" spelled incorrectly. Sigh.
-        # I need to get first line in log so that I can prime the following loop. Specifically, prev_time
-        # must be first time in file.
+
+        # I need to get first line in log so that I can prime the following loop.
+        # Specifically, prev_time must be first timestamp that appears in log.
         row = next(logline)
-        prev_time = datetime.strptime(f'{row[1]} {row[2]}', "%Y-%m-%d %H:%M:%S")
-        ip_lookup[prev_time] = row[0]
+        prev_time = get_time(row)
+        ip_lookup[prev_time] = {row[0]}
         log_table[row[0]] = [prev_time, prev_time, 1]
-        print(prev_time)
+        ip = row[0]
 
         for row in logline:
-            current_time = datetime.strptime(f'{row[1]} {row[2]}', "%Y-%m-%d %H:%M:%S")
-            if current_time != prev_time:
-                which_time = current_time - interval #
+            current_time = get_time(row)
+            if current_time != prev_time: # Time has changed
+            # If time has changed, check to see what's expired and delete it.
+                which_time = prev_time - interval # It may have changed by a number > interval.
                 delta      = timedelta(seconds=1)
-                print('current', current_time, 'which', which_time, interval)
                 while which_time < current_time - interval:
                     if which_time in ip_lookup:
-                        # print(ip_lookup[which_time])
-                        for ip in ip_lookup[which_time]:
-                            # print(ip)
-                            logwriter.writerow([ip, log_table[ip][0], current_time, (log_table[ip][1] - log_table[ip][0]).seconds + 1, log_table[ip][2]])
-                            print('deleted')
-                            print(ip, log_table[ip][0], current_time, (log_table[ip][1] - log_table[ip][0]).seconds + 1, log_table[ip][2])
+                        for ip in ip_lookup[which_time]: # Print out items that expired then remove them from log_table
+                            print_row(ip, log_table, logwriter)
                             del(log_table[ip])
-                        del(ip_lookup[which_time])
+                        del(ip_lookup[which_time]) # which_time is expired; remove entire set from ip_lookup.
                     which_time += delta
-                    # print("Which:", which_time)
-                    # print("Curr: ", current_time)
-                ip_lookup[current_time] = set()
+                ip_lookup[current_time] = set()    # Create a new set for the new current_time.
                 prev_time = current_time
+            ### We've finished dealing with expired queries ###
+
             ip = row[0]
             if ip in log_table:
                 log_table[ip][2] += 1
-                # del(ip_lookup[current_time - interval + timedelta(seconds=1)][ip])
-                # print(ip_lookup[current_time])
-                # print("adding:", ip)
-                # ip_lookup[current_time].add(ip) It's already in there.
-            else: # (line[ip]) doesn't exist)
-                ip_lookup[current_time] = {ip}
+                if ip not in ip_lookup[current_time]:
+                # So it's in the log_table, but for an earlier (but not expired) time.
+                # Update its log_table entry and move it to correct time in ip_lookup
+                    ip_lookup[log_table[ip][1]].remove(ip)
+                    ip_lookup[current_time].add(ip)
+                    log_table[ip][1] = current_time
+            else: # ip is new to us.
+                ip_lookup[current_time].add(ip)  # We know there's already a line in the lookup table for current_time.
                 log_table[ip] = [current_time, current_time, 1]
+
+        ### End of log file. ###
         for ip in sorted(log_table, key=itemgetter(1)):
-            logwriter.writerow([ip, log_table[ip][0], current_time, (log_table[ip][1] - log_table[ip][0]).seconds + 1, log_table[ip][2]])
-            print(ip, log_table[ip][0], current_time, (log_table[ip][1] - log_table[ip][0]).seconds + 1, log_table[ip][2])
-            # logwriter.writerow([ip, log_table[ip][0], current_time, (log_table[ip][1] - log_table[ip][0]).seconds + 1, log_table[ip][2]])
+            print_row(ip, log_table, logwriter)
 
-
-
-                # if current_time - log_table[ip][1] > interval: # in log_table but no longer active
-                #     print("deleted", ip, log_table[ip][1], current_time, log_table[ip][1])
-                #     logwriter.writerow([ip, log_table[ip][0], current_time, (current_time - log_table[ip][0]).seconds + 1, log_table[ip][2]])
-                #     del log_table[ip]
-                #     log_table[ip] = [current_time, current_time, 1]
-                # else: # in the log_table and still active
-                #     log_table[ip][1] = current_time
-                #     print("inserted", ip, current_time, uid)
-                #     log_table[ip][2] += 1  # I should put this in a try/except,
-                #                      # but for now I'll assume it's safe to assume
-                #                      # that the set already exists.
-
-
-            # Declaring a variable here for legibility.
-            uid = f'{row[4]}{row[5]}{row[6]}' # from my reading f'' should be slightly
-                                              # faster than using '+', although
-                                              # it probably doesn't matter for such
-                                              # short strings.
-
-            # This is fragile and will fail poorly: It relies completely on EDGAR being
-            # properly formatted.
-            # Also, I can ignore timezones, as none are given.
-    #         current_time = datetime.strptime(f'{row[1]} {row[2]}', "%Y-%m-%d %H:%M:%S")
-    # # print(current_time)
-    #         if current_time != prev_time
-    #         ip = row[0]
-    #         if ip in log_table:
-    #             if current_time - log_table[ip][1] > interval: # in log_table but no longer active
-    #                 print("deleted", ip, log_table[ip][1], current_time, log_table[ip][1])
-    #                 logwriter.writerow([ip, log_table[ip][0], current_time, (current_time - log_table[ip][0]).seconds + 1, log_table[ip][2]])
-    #                 del log_table[ip]
-    #                 log_table[ip] = [current_time, current_time, 1]
-    #             else: # in the log_table and still active
-    #                 log_table[ip][1] = current_time
-    #                 print("inserted", ip, current_time, uid)
-    #                 log_table[ip][2] += 1  # I should put this in a try/except,
-    #                                  # but for now I'll assume it's safe to assume
-    #                                  # that the set already exists.
-    #         else: # need to insert new line in log_table
-    #             log_table[ip] = [current_time, current_time, 1]
-    #     for ip in sorted(log_table, key=itemgetter(1)):
-    #         logwriter.writerow([ip, log_table[ip][0], current_time, (log_table[ip][1] - log_table[ip][0]).seconds + 1, log_table[ip][2]])
-
-
-# New class:
-# Be able to look up sessions by both IP and last query time.
-# Store first query time, last query time, number of documents
-# last query time is stored in
-class LogQueue:
-    #
-    # last query time -> ip
-    # ip ->
-    def __init__():
-        a = 5
