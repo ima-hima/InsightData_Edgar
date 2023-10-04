@@ -38,27 +38,26 @@ Python code to parse EDGAR output and create new log files containing summary.
         if line[ip] exists in log_table:    ### this means we're still inside interval
             update log_table[ip][num_documents] += 1
             delete ip_lookup[current_time - interval + 1][ip]
-            add    ip_lookup[current_time][ip]
-        else:    ### line[ip] doesn't exist
-            add ip_lookup[current_time]            = ip
+            add ip_lookup[current_time][ip]
+        else:  ### line[ip] doesn't exist
+            add ip_lookup[current_time] = ip
             add log_table[ip][original_query_time] = current_time
-            add log_table[ip][num_documents]       = 1
+            add log_table[ip][num_documents] = 1
 
     for log_item in log_table, sorted by original_query_time:
         print log_item, final_time = current_time
 
 #### Test cases in my-tests
 
-1. time has expired but ip doesn't appear again
-1. change in time > 1
-1. queries are still active at end of log
-1. other inactivity periods
+1. Time has expired but IP doesn't appear again.
+1. Change in time > 1.
+1. Queries are still active at end of log.
+1. Other inactivity periods.
 
 
 #### TODOs
 
-1. Could be more modular
+1. Could be more modular.
 1. The data structure is a little complicated. Making it an object would be nice.
 1. Not currently using Pythonic EAFP coding style vs. LBYL.
 1. Dictionary comprehension and row printing could be a little prettier.
-
